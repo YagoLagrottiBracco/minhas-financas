@@ -319,6 +319,29 @@ const EnvironmentBillsPage = () => {
     0,
   );
 
+  const createCategory = useMutation({
+    mutationFn: async (name: string) => {
+      if (!groupId) throw new Error('Grupo inválido');
+      const response = await apiClient.post<Category>(`/groups/${groupId}/categories`, {
+        name,
+      });
+      return response.data;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['categories', groupId] });
+      toast({ title: 'Categoria salva', status: 'success', duration: 3000, isClosable: true });
+    },
+    onError: (error: any) => {
+      toast({
+        title: 'Erro ao salvar categoria',
+        description: error?.response?.data?.message || error.message,
+        status: 'error',
+        duration: 4000,
+        isClosable: true,
+      });
+    },
+  });
+
   const createBill = useMutation({
     mutationFn: async (data: BillForm) => {
       if (!groupId || !environmentId) throw new Error('Grupo ou ambiente inválidos');

@@ -1,0 +1,252 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id              String         @id @default(cuid())
+  name            String
+  email           String         @unique
+  passwordHash    String
+  createdAt       DateTime       @default(now())
+  updatedAt       DateTime       @updatedAt
+
+  groupMembers    GroupMember[]
+  ownedGroups     Group[]        @relation("GroupOwner")
+  ownedBills      Bill[]         @relation("BillOwner")
+  receivedBills   Bill[]         @relation("BillReceiver")
+  billShares      BillShare[]
+  paymentsSent    Payment[]      @relation("PaymentsSent")
+  paymentsReceived Payment[]     @relation("PaymentsReceived")
+  notifications   Notification[]
+  activities      Activity[]
+  recurringBillsOwned    RecurringBill[] @relation("RecurringBillOwner")
+  recurringBillsReceived RecurringBill[] @relation("RecurringBillReceiver")
+  recurringBillShares    RecurringBillShare[]
+}
+
+model Group {
+  id           String        @id @default(cuid())
+  name         String
+  description  String?
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
+  archived     Boolean       @default(false)
+
+  owner        User          @relation("GroupOwner", fields: [ownerId], references: [id])
+  ownerId      String
+
+  members      GroupMember[]
+  environments Environment[]
+  bills        Bill[]
+  activities   Activity[]
+  recurringBills RecurringBill[]
+  categories  Category[]
+}
+
+model GroupMember {
+  id        String    @id @default(cuid())
+  group     Group     @relation(fields: [groupId], references: [id])
+  groupId   String
+  user      User      @relation(fields: [userId], references: [id])
+  userId    String
+  role      GroupRole @default(MEMBER)
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  active    Boolean   @default(true)
+
+  @@unique([groupId, userId])
+}
+
+enum GroupRole {
+  ADMIN
+  MEMBER
+}
+
+model Environment {
+  id          String   @id @default(cuid())
+  name        String
+  description String?
+  archived    Boolean  @default(false)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  group       Group    @relation(fields: [groupId], references: [id])
+  groupId     String
+  bills       Bill[]
+  recurringBills RecurringBill[]
+}
+
+model Bill {
+  id            String      @id @default(cuid())
+  title         String
+  dueDate       DateTime
+  totalAmount   Float
+  installments  Int         @default(1)
+  pixKey        String?
+  paymentLink   String?
+  attachmentUrl String?
+  status        BillStatus  @default(OPEN)
+  category      String?
+  receiverName  String?
+  createdAt     DateTime    @default(now())
+  updatedAt     DateTime    @updatedAt
+  archived      Boolean     @default(false)
+
+  group         Group       @relation(fields: [groupId], references: [id])
+  groupId       String
+
+  environment   Environment @relation(fields: [environmentId], references: [id])
+  environmentId String
+
+  owner         User        @relation("BillOwner", fields: [ownerId], references: [id])
+  ownerId       String
+
+  receiver      User?       @relation("BillReceiver", fields: [receiverId], references: [id])
+  receiverId    String?
+
+  shares        BillShare[]
+  payments      Payment[]
+  recurringBill RecurringBill? @relation(fields: [recurringBillId], references: [id])
+  recurringBillId String?
+}
+
+enum BillStatus {
+  OPEN
+  PARTIALLY_PAID
+  PAID
+}
+
+model BillShare {
+  id         String      @id @default(cuid())
+  bill       Bill        @relation(fields: [billId], references: [id])
+  billId     String
+  user       User        @relation(fields: [userId], references: [id])
+  userId     String
+  percentage Float
+  amount     Float
+  status     ShareStatus @default(PENDING)
+  createdAt  DateTime    @default(now())
+  updatedAt  DateTime    @updatedAt
+
+  @@unique([billId, userId])
+}
+
+model RecurringBill {
+  id            String             @id @default(cuid())
+  title         String
+  totalAmount   Float
+  frequency     RecurringFrequency
+  dayOfMonth    Int?
+  weekday       Int?
+  nextDueDate   DateTime
+  pixKey        String?
+  paymentLink   String?
+  attachmentUrl String?
+  active        Boolean            @default(true)
+  createdAt     DateTime           @default(now())
+  updatedAt     DateTime           @updatedAt
+
+  group         Group              @relation(fields: [groupId], references: [id])
+  groupId       String
+
+  environment   Environment        @relation(fields: [environmentId], references: [id])
+  environmentId String
+
+  owner         User               @relation("RecurringBillOwner", fields: [ownerId], references: [id])
+  ownerId       String
+
+  receiver      User?              @relation("RecurringBillReceiver", fields: [receiverId], references: [id])
+  receiverId    String?
+  receiverName  String?
+
+  shares        RecurringBillShare[]
+  bills         Bill[]
+}
+
+model RecurringBillShare {
+  id              String        @id @default(cuid())
+  recurringBill   RecurringBill @relation(fields: [recurringBillId], references: [id])
+  recurringBillId String
+  user            User          @relation(fields: [userId], references: [id])
+  userId          String
+  percentage      Float
+
+  @@unique([recurringBillId, userId])
+}
+
+enum ShareStatus {
+  PENDING
+  PAID
+}
+
+model Payment {
+  id         String        @id @default(cuid())
+  bill       Bill?         @relation(fields: [billId], references: [id])
+  billId     String?
+
+  fromUser   User          @relation("PaymentsSent", fields: [fromUserId], references: [id])
+  fromUserId String
+
+  toUser     User          @relation("PaymentsReceived", fields: [toUserId], references: [id])
+  toUserId   String
+
+  amount     Float
+  method     String?
+  status     PaymentStatus @default(COMPLETED)
+  paidAt     DateTime      @default(now())
+  createdAt  DateTime      @default(now())
+  updatedAt  DateTime      @updatedAt
+}
+
+enum PaymentStatus {
+  PENDING
+  COMPLETED
+  CANCELLED
+}
+
+enum RecurringFrequency {
+  MONTHLY
+  WEEKLY
+  YEARLY
+}
+
+model Notification {
+  id        String   @id @default(cuid())
+  user      User     @relation(fields: [userId], references: [id])
+  userId    String
+  title     String
+  message   String
+  type      String
+  read      Boolean  @default(false)
+  createdAt DateTime @default(now())
+  readAt    DateTime?
+}
+
+model Activity {
+  id          String   @id @default(cuid())
+  group       Group    @relation(fields: [groupId], references: [id])
+  groupId     String
+  user        User?    @relation(fields: [userId], references: [id])
+  userId      String?
+  type        String
+  description String
+  createdAt   DateTime @default(now())
+}
+
+model Category {
+  id        String   @id @default(cuid())
+  name      String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  archived  Boolean  @default(false)
+
+  group   Group  @relation(fields: [groupId], references: [id])
+  groupId String
+
+  @@unique([groupId, name])
+}

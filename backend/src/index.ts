@@ -15,23 +15,13 @@ dotenv.config();
 const app = express();
 const server = http.createServer(app);
 
-const allowedOrigins = (process.env.FRONTEND_URL || 'http://localhost:5173')
-  .split(',')
-  .map((o: string) => o.trim());
-
 const io = new Server(server, {
   cors: {
-    origin: allowedOrigins,
-    credentials: true,
+    origin: '*',
   },
 });
 
-app.use(
-  cors({
-    origin: allowedOrigins,
-    credentials: true,
-  }),
-);
+app.use(cors());
 app.use(express.json());
 
 // disponibiliza o io para os handlers

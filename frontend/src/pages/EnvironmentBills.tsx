@@ -62,13 +62,36 @@ interface BillForm {
   pixKey?: string;
   paymentLink?: string;
   attachmentUrl?: string;
-   paymentMethod?: 'PIX' | 'CARTAO' | 'BOLETO' | 'DINHEIRO';
+  paymentMethod?: 'PIX' | 'CARTAO' | 'BOLETO' | 'DINHEIRO';
   ownerId: string;
   receiverId?: string;
   receiverName: string;
   isRecurring?: boolean;
   frequency?: RecurringFrequency;
   category?: string;
+}
+
+interface SharePayload {
+  userId: string;
+  percentage: number;
+}
+
+interface UpdateBillPayload {
+  title?: string;
+  dueDate?: string;
+  totalAmount?: number;
+  installments?: number;
+  pixKey?: string;
+  paymentLink?: string;
+  attachmentUrl?: string;
+  paymentMethod?: 'PIX' | 'CARTAO' | 'BOLETO' | 'DINHEIRO';
+  ownerId?: string;
+  receiverId?: string;
+  receiverName?: string;
+  isRecurring?: boolean;
+  frequency?: RecurringFrequency;
+  category?: string;
+  shares?: SharePayload[];
 }
 
 const EnvironmentBillsPage = () => {
@@ -222,7 +245,7 @@ const EnvironmentBillsPage = () => {
   });
 
   const updateBill = useMutation({
-    mutationFn: async ({ id, data }: { id: string; data: BillForm }) => {
+    mutationFn: async ({ id, data }: { id: string; data: UpdateBillPayload }) => {
       const response = await apiClient.patch<Bill>(`/bills/${id}`, data);
       return response.data;
     },
@@ -296,13 +319,12 @@ const EnvironmentBillsPage = () => {
   });
 
   const [editingBill, setEditingBill] = useState<Bill | null>(null);
+  const [editingRecurring, setEditingRecurring] = useState<RecurringBill | null>(null);
   const [shares, setShares] = useState<Record<string, number>>({});
 
-  // Inicializa porcentagens iguais entre membros
-  useEffect(() => {
-    if (!group) return;
+  const distributeEqually = () => {
+    if (!group?.members?.length) return;
     const members = group.members;
-    if (!members.length) return;
     const base = Math.floor(100 / members.length);
     let remaining = 100;
     const initial: Record<string, number> = {};
@@ -312,6 +334,11 @@ const EnvironmentBillsPage = () => {
       remaining -= value;
     });
     setShares(initial);
+  };
+
+  // Inicializa porcentagens iguais entre membros
+  useEffect(() => {
+    distributeEqually();
   }, [group]);
 
   const totalShares = Object.values(shares).reduce(
@@ -334,6 +361,39 @@ const EnvironmentBillsPage = () => {
     onError: (error: any) => {
       toast({
         title: 'Erro ao salvar categoria',
+        description: error?.response?.data?.message || error.message,
+        status: 'error',
+        duration: 4000,
+        isClosable: true,
+      });
+    },
+  });
+
+  const updateRecurring = useMutation({
+    mutationFn: async ({ id, data }: { id: string; data: any }) => {
+      const response = await apiClient.patch<RecurringBill>(`/recurring-bills/${id}`, data);
+      return response.data;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['recurring-bills', environmentId] });
+      queryClient.invalidateQueries({ queryKey: ['bills', environmentId] });
+      setEditingRecurring(null);
+      reset({
+        installments: 1,
+        isRecurring: false,
+        frequency: 'MONTHLY',
+      } as any);
+      distributeEqually();
+      toast({
+        title: 'Conta recorrente atualizada',
+        status: 'success',
+        duration: 3000,
+        isClosable: true,
+      });
+    },
+    onError: (error: any) => {
+      toast({
+        title: 'Erro ao atualizar recorrência',
         description: error?.response?.data?.message || error.message,
         status: 'error',
         duration: 4000,
@@ -423,8 +483,50 @@ const EnvironmentBillsPage = () => {
   });
 
   const onSubmit = (data: BillForm) => {
+    const sharesArray = Object.entries(shares).map(([userId, percentage]) => ({
+      userId,
+      percentage: Number(percentage),
+    }));
+
+    const totalPercent = sharesArray.reduce((acc, s) => acc + s.percentage, 0);
+    if (totalPercent !== 100) {
+      toast({
+        title: 'A soma das porcentagens deve ser 100%',
+        status: 'error',
+        isClosable: true,
+        duration: 3000,
+      });
+      return;
+    }
+
+    if (editingRecurring) {
+      updateRecurring.mutate({
+        id: editingRecurring.id,
+        data: {
+          title: data.title,
+          totalAmount: data.totalAmount,
+          frequency: data.frequency || 'MONTHLY',
+          dueDate: data.dueDate,
+          pixKey: data.pixKey || undefined,
+          paymentLink: data.paymentLink || undefined,
+          attachmentUrl: data.attachmentUrl || undefined,
+          ownerId: data.ownerId,
+          receiverId: data.receiverId,
+          receiverName: data.receiverName,
+          shares: sharesArray,
+        },
+      });
+      return;
+    }
+
     if (editingBill) {
-      updateBill.mutate({ id: editingBill.id, data });
+      updateBill.mutate({
+        id: editingBill.id,
+        data: {
+          ...data,
+          shares: sharesArray,
+        },
+      });
       return;
     }
     if (data.isRecurring) {
@@ -434,7 +536,13 @@ const EnvironmentBillsPage = () => {
     }
   };
 
-  const isEditing = !!editingBill;
+  const isEditingBill = !!editingBill;
+  const isEditingRecurring = !!editingRecurring;
+  const formTitle = isEditingRecurring
+    ? 'Editar conta recorrente'
+    : isEditingBill
+    ? 'Editar conta'
+    : 'Criar conta';
 
   const paymentMethod =
     (watch('paymentMethod') as 'PIX' | 'CARTAO' | 'BOLETO' | 'DINHEIRO') || 'PIX';
@@ -556,25 +664,60 @@ const EnvironmentBillsPage = () => {
                   <Td isNumeric>{formatCurrencyBRL(r.totalAmount)}</Td>
                   <Td>
                     {user && r.ownerId === user.id && (
-                      <Button
-                        size="xs"
-                        colorScheme={r.active ? 'red' : 'green'}
-                        variant="outline"
-                        onClick={() => {
-                          const action = r.active ? 'desativar' : 'ativar';
-                          if (
-                            !window.confirm(
-                              `Tem certeza que deseja ${action} esta recorrência?`,
-                            )
-                          ) {
-                            return;
-                          }
-                          toggleRecurring.mutate({ id: r.id, active: !r.active });
-                        }}
-                        isLoading={toggleRecurring.isPending}
-                      >
-                        {r.active ? 'Desativar' : 'Ativar'}
-                      </Button>
+                      <HStack spacing={2}>
+                        <Button
+                          size="xs"
+                          colorScheme={r.active ? 'red' : 'green'}
+                          variant="outline"
+                          onClick={() => {
+                            const action = r.active ? 'desativar' : 'ativar';
+                            if (
+                              !window.confirm(
+                                `Tem certeza que deseja ${action} esta recorrência?`,
+                              )
+                            ) {
+                              return;
+                            }
+                            toggleRecurring.mutate({ id: r.id, active: !r.active });
+                          }}
+                          isLoading={toggleRecurring.isPending}
+                        >
+                          {r.active ? 'Desativar' : 'Ativar'}
+                        </Button>
+                        <Button
+                          size="xs"
+                          colorScheme="blue"
+                          variant="ghost"
+                          onClick={() => {
+                            setEditingRecurring(r);
+                            setEditingBill(null);
+                            reset({
+                              title: r.title,
+                              dueDate: r.nextDueDate
+                                ? new Date(r.nextDueDate).toISOString().slice(0, 10)
+                                : '',
+                              totalAmount: r.totalAmount,
+                              installments: 1,
+                              pixKey: r.pixKey || undefined,
+                              paymentLink: r.paymentLink || undefined,
+                              attachmentUrl: r.attachmentUrl || undefined,
+                              ownerId: r.ownerId,
+                              receiverId: r.receiverId || undefined,
+                              receiverName: r.receiverName || r.receiver?.name || '',
+                              isRecurring: true,
+                              frequency: r.frequency,
+                              category: undefined,
+                            } as any);
+                            const nextShares: Record<string, number> = {};
+                            r.shares.forEach((s) => {
+                              nextShares[s.userId] = s.percentage;
+                            });
+                            setShares(nextShares);
+                          }}
+                        >
+                          Editar
+                        </Button>
+                      </HStack>
                     )}
                   </Td>
                 </Tr>
@@ -587,7 +730,7 @@ const EnvironmentBillsPage = () => {
       <SimpleGrid columns={{ base: 1, lg: 2 }} spacing={6} alignItems="flex-start">
         <Box bg="white" p={4} borderRadius="md" boxShadow="sm">
           <Heading size="sm" mb={3}>
-            {isEditing ? 'Editar conta' : 'Criar conta'}
+            {formTitle}
           </Heading>
           <VStack
             as="form"
@@ -600,8 +743,11 @@ const EnvironmentBillsPage = () => {
               <Input placeholder="Luz, Internet..." {...register('title', { required: true })} />
             </FormControl>
             <FormControl isRequired>
-              <FormLabel>Data de vencimento</FormLabel>
+              <FormLabel>Data de vencimento (1ª parcela)</FormLabel>
               <Input type="date" {...register('dueDate', { required: true })} />
+              <Text fontSize="xs" color="gray.500" mt={1}>
+                As demais parcelas (quando houver) seguem mensalmente a partir desta data.
+              </Text>
             </FormControl>
             <FormControl isRequired>
               <FormLabel>Valor total (R$)</FormLabel>
@@ -614,6 +760,9 @@ const EnvironmentBillsPage = () => {
               <NumberInput min={1}>
                 <NumberInputField {...register('installments', { valueAsNumber: true })} />
               </NumberInput>
+              <Text fontSize="xs" color="gray.500" mt={1}>
+                Se preencher, consideramos parcelas mensais a partir da data de vencimento.
+              </Text>
             </FormControl>
             <Box>
               <FormLabel>Forma de pagamento</FormLabel>
@@ -725,6 +874,7 @@ const EnvironmentBillsPage = () => {
                     if (!name) return;
                     createCategory.mutate(name);
                   }}
+                  isDisabled={!(watch('category') || '').trim()}
                   isLoading={createCategory.isPending}
                 >
                   Salvar categoria
@@ -732,13 +882,13 @@ const EnvironmentBillsPage = () => {
               </VStack>
             </FormControl>
 
-            {!isEditing && (
+            {!isEditingBill && !isEditingRecurring && (
               <Box mt={2}>
                 <HStack align="center" mb={2}>
                   <Checkbox {...register('isRecurring')}>
                     Tornar esta conta recorrente
                   </Checkbox>
-                  {watch('isRecurring') && (
+                  {(watch('isRecurring') || isEditingRecurring) && (
                     <Select
                       maxW="160px"
                       size="sm"
@@ -766,6 +916,9 @@ const EnvironmentBillsPage = () => {
                   </option>
                 ))}
               </Select>
+              <Text fontSize="xs" color="gray.500" mt={1}>
+                O dono controla a edição. A divisão real está nas porcentagens abaixo.
+              </Text>
             </FormControl>
 
             <FormControl isRequired>
@@ -794,43 +947,44 @@ const EnvironmentBillsPage = () => {
               </Text>
             </FormControl>
 
-            {!isEditing && (
-              <Box mt={2}>
-                <Heading size="xs" mb={1}>
-                  Porcentagem por pessoa
-                </Heading>
-                <Text fontSize="xs" color="gray.500" mb={1}>
-                  A soma deve ser exatamente 100%. Atual: {totalShares}%
-                </Text>
-                <VStack align="stretch" spacing={1}>
-                  {group?.members.map((m: GroupMember) => (
-                    <Box key={m.id} display="flex" alignItems="center" gap={2}>
-                      <Box flex="1" fontSize="sm">
-                        {m.user.name}
-                      </Box>
-                      <NumberInput
-                        size="sm"
-                        maxW="100px"
-                        min={0}
-                        max={100}
-                        value={shares[m.user.id] ?? 0}
-                        onChange={(_, valueAsNumber) => {
-                          setShares((prev) => ({
-                            ...prev,
-                            [m.user.id]: Number.isNaN(valueAsNumber) ? 0 : valueAsNumber,
-                          }));
-                        }}
-                      >
-                        <NumberInputField />
-                      </NumberInput>
-                      <Text fontSize="xs">%</Text>
+            <Box mt={2}>
+              <HStack justify="space-between" align="center" mb={1}>
+                <Heading size="xs">Porcentagem por pessoa</Heading>
+                <Button size="xs" variant="ghost" onClick={distributeEqually}>
+                  Dividir igualmente
+                </Button>
+              </HStack>
+              <Text fontSize="xs" color="gray.500" mb={1}>
+                A soma deve ser exatamente 100%. Atual: {totalShares}%
+              </Text>
+              <VStack align="stretch" spacing={1}>
+                {group?.members.map((m: GroupMember) => (
+                  <Box key={m.id} display="flex" alignItems="center" gap={2}>
+                    <Box flex="1" fontSize="sm">
+                      {m.user.name}
                     </Box>
-                  ))}
-                </VStack>
-              </Box>
-            )}
+                    <NumberInput
+                      size="sm"
+                      maxW="100px"
+                      min={0}
+                      max={100}
+                      value={shares[m.user.id] ?? 0}
+                      onChange={(_, valueAsNumber) => {
+                        setShares((prev) => ({
+                          ...prev,
+                          [m.user.id]: Number.isNaN(valueAsNumber) ? 0 : valueAsNumber,
+                        }));
+                      }}
+                    >
+                      <NumberInputField />
+                    </NumberInput>
+                    <Text fontSize="xs">%</Text>
+                  </Box>
+                ))}
+              </VStack>
+            </Box>
 
-            {!isEditing && totalShares !== 100 && (
+            {totalShares !== 100 && (
               <Text fontSize="xs" color="red.500">
                 A soma das porcentagens precisa ser 100%.
               </Text>
@@ -841,25 +995,29 @@ const EnvironmentBillsPage = () => {
                 type="submit"
                 colorScheme="blue"
                 isLoading={
-                  isEditing
+                  isEditingBill
                     ? updateBill.isPending
+                    : isEditingRecurring
+                    ? updateRecurring.isPending
                     : createBill.isPending || createRecurring.isPending
                 }
-                isDisabled={!isEditing && totalShares !== 100}
+                isDisabled={totalShares !== 100}
               >
-                {isEditing ? 'Salvar alterações' : 'Criar conta'}
+                {isEditingBill || isEditingRecurring ? 'Salvar alterações' : 'Criar conta'}
               </Button>
-              {isEditing && (
+              {(isEditingBill || isEditingRecurring) && (
                 <Button
                   type="button"
                   variant="ghost"
                   onClick={() => {
                     setEditingBill(null);
+                    setEditingRecurring(null);
                     reset({
                       installments: 1,
                       isRecurring: false,
                       frequency: 'MONTHLY',
                     } as any);
+                    distributeEqually();
                   }}
                 >
                   Cancelar
@@ -960,6 +1118,11 @@ const EnvironmentBillsPage = () => {
                                   isRecurring: false,
                                   frequency: 'MONTHLY',
                                 } as any);
+                                const nextShares: Record<string, number> = {};
+                                bill.shares.forEach((s) => {
+                                  nextShares[s.userId] = s.percentage;
+                                });
+                                setShares(nextShares);
                               }}
                             >
                               Editar

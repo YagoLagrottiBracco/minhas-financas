@@ -193,15 +193,105 @@ router.get(
   },
 );
 
-// Ativar/desativar uma configuração recorrente
+// Atualizar configuração recorrente (campos e shares)
 router.patch('/:id', authMiddleware, async (req: AuthRequest, res: Response) => {
   try {
     const { id } = req.params;
-    const { active } = req.body as { active: boolean };
+    const {
+      title,
+      totalAmount,
+      frequency,
+      dueDate,
+      pixKey,
+      paymentLink,
+      attachmentUrl,
+      ownerId,
+      receiverId,
+      receiverName,
+      shares,
+      active,
+    } = req.body as {
+      title?: string;
+      totalAmount?: number;
+      frequency?: 'MONTHLY' | 'WEEKLY' | 'YEARLY';
+      dueDate?: string;
+      pixKey?: string | null;
+      paymentLink?: string | null;
+      attachmentUrl?: string | null;
+      ownerId?: string;
+      receiverId?: string | null;
+      receiverName?: string | null;
+      shares?: { userId: string; percentage: number }[];
+      active?: boolean;
+    };
 
-    const updated = await prisma.recurringBill.update({
+    const recurring = await prisma.recurringBill.findUnique({
       where: { id },
-      data: { active },
+      include: { shares: true },
+    });
+
+    if (!recurring) {
+      return res.status(404).json({ message: 'Recorrência não encontrada' });
+    }
+
+    let effectiveReceiverId = receiverId ?? recurring.receiverId ?? null;
+    let effectiveReceiverName = receiverName ?? recurring.receiverName ?? null;
+
+    if (!effectiveReceiverId && effectiveReceiverName) {
+      const matchedUser = await prisma.user.findFirst({ where: { name: effectiveReceiverName } });
+      if (matchedUser) {
+        effectiveReceiverId = matchedUser.id;
+      }
+    }
+
+    if (shares && shares.length > 0) {
+      const sumPercent = shares.reduce(
+        (acc: number, s: { userId: string; percentage: number }) => acc + s.percentage,
+        0,
+      );
+      if (Math.round(sumPercent) !== 100) {
+        return res.status(400).json({ message: 'Soma das porcentagens deve ser 100%' });
+      }
+    }
+
+    const data: any = {};
+    if (title !== undefined) data.title = title;
+    if (totalAmount !== undefined) data.totalAmount = totalAmount;
+    if (frequency !== undefined) data.frequency = frequency;
+    if (dueDate !== undefined) {
+      const firstDueDate = new Date(dueDate);
+      data.dayOfMonth = firstDueDate.getDate();
+      data.nextDueDate = getNextDueDate(firstDueDate, frequency || recurring.frequency);
+    }
+    if (pixKey !== undefined) data.pixKey = pixKey;
+    if (paymentLink !== undefined) data.paymentLink = paymentLink;
+    if (attachmentUrl !== undefined) data.attachmentUrl = attachmentUrl;
+    if (ownerId !== undefined) data.ownerId = ownerId;
+    if (receiverId !== undefined || receiverName !== undefined) {
+      data.receiverId = effectiveReceiverId || null;
+      data.receiverName = effectiveReceiverName || null;
+    }
+    if (active !== undefined) data.active = active;
+
+    const updated = await prisma.$transaction(async (tx) => {
+      const updatedRecurring = await tx.recurringBill.update({
+        where: { id },
+        data,
+        include: { shares: true },
+      });
+
+      if (shares && shares.length > 0) {
+        await tx.recurringBillShare.deleteMany({ where: { recurringBillId: id } });
+        await tx.recurringBillShare.createMany({
+          data: shares.map((s) => ({
+            recurringBillId: id,
+            userId: s.userId,
+            percentage: s.percentage,
+          })),
+        });
+      }
+
+      return updatedRecurring;
     });
 
     return res.json(updated);

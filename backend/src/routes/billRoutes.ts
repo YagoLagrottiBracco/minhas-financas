@@ -225,10 +225,16 @@ router.patch('/:billId', authMiddleware, async (req: AuthRequest, res: Response)
       return res.status(404).json({ message: 'Conta não encontrada' });
     }
 
+    // Permite edição pelo dono OU admin do grupo
     if (bill.ownerId !== userId) {
-      return res
-        .status(403)
-        .json({ message: 'Apenas quem criou a conta pode editá-la' });
+      const membership = await prisma.groupMember.findFirst({
+        where: { groupId: bill.groupId, userId, active: true, role: 'ADMIN' },
+      });
+      if (!membership) {
+        return res
+          .status(403)
+          .json({ message: 'Apenas quem criou a conta pode editá-la' });
+      }
     }
 
     if (bill.status !== 'OPEN') {

@@ -110,6 +110,7 @@ router.post('/environments/:environmentId', authMiddleware, async (req: AuthRequ
             userId: s.userId,
             percentage: s.percentage,
             amount: (totalAmount * s.percentage) / 100,
+            status: (totalAmount * s.percentage) / 100 > 0 ? 'PENDING' : 'PAID',
           })),
         },
       },
@@ -311,7 +312,13 @@ router.patch('/:billId', authMiddleware, async (req: AuthRequest, res: Response)
             amount:
               totalAmount !== undefined
                 ? (totalAmount * s.percentage) / 100
-                : billUpdated.totalAmount * s.percentage / 100,
+                : (billUpdated.totalAmount * s.percentage) / 100,
+            status:
+              (totalAmount !== undefined
+                ? (totalAmount * s.percentage) / 100
+                : (billUpdated.totalAmount * s.percentage) / 100) > 0
+                ? 'PENDING'
+                : 'PAID',
           })),
         });
       } else if (totalAmount !== undefined) {

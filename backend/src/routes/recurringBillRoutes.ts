@@ -22,6 +22,16 @@ const addYears = (date: Date, years: number) => {
   return d;
 };
 
+// Evita deslocamento por fuso ao lidar com "YYYY-MM-DD"
+const parseDateOnly = (value: string) => {
+  const parts = value.split('-').map((p) => Number(p));
+  if (parts.length === 3) {
+    const [year, month, day] = parts;
+    return new Date(Date.UTC(year, month - 1, day, 12, 0, 0));
+  }
+  return new Date(value);
+};
+
 const getNextDueDate = (current: Date, frequency: string) => {
   if (frequency === 'WEEKLY') return addWeeks(current, 1);
   if (frequency === 'YEARLY') return addYears(current, 1);
@@ -97,8 +107,9 @@ router.post(
         return res.status(400).json({ message: 'Soma das porcentagens deve ser 100%' });
       }
 
-      const firstDueDate = new Date(dueDate);
-      const nextDueDate = getNextDueDate(firstDueDate, frequency);
+      const firstDueDate = parseDateOnly(dueDate);
+      // Ao criar, o próximo vencimento começa na própria primeira data
+      const nextDueDate = firstDueDate;
 
       const recurring = await prisma.recurringBill.create({
         data: {
@@ -259,9 +270,10 @@ router.patch('/:id', authMiddleware, async (req: AuthRequest, res: Response) => 
     if (totalAmount !== undefined) data.totalAmount = totalAmount;
     if (frequency !== undefined) data.frequency = frequency;
     if (dueDate !== undefined) {
-      const firstDueDate = new Date(dueDate);
+      const firstDueDate = parseDateOnly(dueDate);
       data.dayOfMonth = firstDueDate.getDate();
-      data.nextDueDate = getNextDueDate(firstDueDate, frequency || recurring.frequency);
+      // Reposiciona próximo vencimento para a data informada (sem avançar um mês)
+      data.nextDueDate = firstDueDate;
     }
     if (pixKey !== undefined) data.pixKey = pixKey;
     if (paymentLink !== undefined) data.paymentLink = paymentLink;

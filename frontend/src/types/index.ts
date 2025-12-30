@@ -189,6 +189,7 @@ export interface RecurringBill {
   receiverId?: string | null;
   receiverName?: string | null;
   shares: RecurringBillShare[];
+  receiver?: User;
 }
 
 export interface CategorySummary {

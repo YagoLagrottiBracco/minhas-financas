@@ -104,6 +104,7 @@ const EnvironmentBillsPage = () => {
   const [month, setMonth] = useState<string>(String(now.getMonth() + 1));
   const [year, setYear] = useState<string>(String(now.getFullYear()));
   const [statusFilter, setStatusFilter] = useState<string>('');
+  const [showAllPending, setShowAllPending] = useState<boolean>(true);
   const currentYear = now.getFullYear();
 
   const { data: groups } = useQuery<Group[]>({
@@ -294,14 +295,17 @@ const EnvironmentBillsPage = () => {
   });
 
   const { data: bills } = useQuery<Bill[]>({
-    queryKey: ['bills', environmentId, month, year, statusFilter],
+    queryKey: ['bills', environmentId, month, year, statusFilter, showAllPending],
     queryFn: async () => {
-      const response = await apiClient.get<Bill[]>(`/bills/environments/${environmentId}`, {
-        params: {
+      const params: any = showAllPending
+        ? { showAllPending: 'true' }
+        : {
           month,
           year,
           status: statusFilter || undefined,
-        },
+        };
+      const response = await apiClient.get<Bill[]>(`/bills/environments/${environmentId}`, {
+        params,
       });
       return response.data;
     },
@@ -541,8 +545,8 @@ const EnvironmentBillsPage = () => {
   const formTitle = isEditingRecurring
     ? 'Editar conta recorrente'
     : isEditingBill
-    ? 'Editar conta'
-    : 'Criar conta';
+      ? 'Editar conta'
+      : 'Criar conta';
 
   const paymentMethod =
     (watch('paymentMethod') as 'PIX' | 'CARTAO' | 'BOLETO' | 'DINHEIRO') || 'PIX';
@@ -550,10 +554,10 @@ const EnvironmentBillsPage = () => {
     paymentMethod === 'CARTAO'
       ? 1
       : paymentMethod === 'BOLETO'
-      ? 2
-      : paymentMethod === 'DINHEIRO'
-      ? 3
-      : 0;
+        ? 2
+        : paymentMethod === 'DINHEIRO'
+          ? 3
+          : 0;
 
   return (
     <VStack align="stretch" spacing={6}>
@@ -561,12 +565,20 @@ const EnvironmentBillsPage = () => {
         {group?.name} / {environment?.name || 'Ambiente'}
       </Heading>
 
-      <HStack spacing={3} align="center">
+      <HStack spacing={3} align="center" flexWrap="wrap">
+        <Checkbox
+          isChecked={showAllPending}
+          onChange={(e) => setShowAllPending(e.target.checked)}
+          colorScheme="blue"
+        >
+          Todas pendentes
+        </Checkbox>
         <Select
           maxW="150px"
           size="sm"
           value={month}
           onChange={(e) => setMonth(e.target.value)}
+          isDisabled={showAllPending}
         >
           <option value="1">Janeiro</option>
           <option value="2">Fevereiro</option>
@@ -586,6 +598,7 @@ const EnvironmentBillsPage = () => {
           size="sm"
           value={year}
           onChange={(e) => setYear(e.target.value)}
+          isDisabled={showAllPending}
         >
           <option value={String(currentYear - 1)}>{currentYear - 1}</option>
           <option value={String(currentYear)}>{currentYear}</option>
@@ -596,6 +609,7 @@ const EnvironmentBillsPage = () => {
           size="sm"
           value={statusFilter}
           onChange={(e) => setStatusFilter(e.target.value)}
+          isDisabled={showAllPending}
         >
           <option value="">Todos status</option>
           <option value="OPEN">Em aberto</option>
@@ -657,8 +671,8 @@ const EnvironmentBillsPage = () => {
                     {r.frequency === 'MONTHLY'
                       ? 'Mensal'
                       : r.frequency === 'WEEKLY'
-                      ? 'Semanal'
-                      : 'Anual'}
+                        ? 'Semanal'
+                        : 'Anual'}
                   </Td>
                   <Td>{new Date(r.nextDueDate).toLocaleDateString('pt-BR')}</Td>
                   <Td isNumeric>{formatCurrencyBRL(r.totalAmount)}</Td>
@@ -998,8 +1012,8 @@ const EnvironmentBillsPage = () => {
                   isEditingBill
                     ? updateBill.isPending
                     : isEditingRecurring
-                    ? updateRecurring.isPending
-                    : createBill.isPending || createRecurring.isPending
+                      ? updateRecurring.isPending
+                      : createBill.isPending || createRecurring.isPending
                 }
                 isDisabled={totalShares !== 100}
               >
@@ -1045,114 +1059,114 @@ const EnvironmentBillsPage = () => {
                   </Tr>
                 </Thead>
                 <Tbody>
-                {bills.map((bill) => {
-                  const myShare = user
-                    ? bill.shares.find((s) => s.userId === user.id)
-                    : undefined;
-                  const canPayMyShare =
-                    !!myShare && myShare.status === 'PENDING' && bill.status !== 'PAID';
+                  {bills.map((bill) => {
+                    const myShare = user
+                      ? bill.shares.find((s) => s.userId === user.id)
+                      : undefined;
+                    const canPayMyShare =
+                      !!myShare && myShare.status === 'PENDING' && bill.status !== 'PAID';
 
-                  return (
-                    <Tr key={bill.id}>
-                      <Td>
-                        <Text fontSize="sm">{bill.title}</Text>
-                        {myShare && (
-                          <Text fontSize="xs" color="gray.600">
-                            Sua parte: {formatCurrencyBRL(myShare.amount)} ({myShare.percentage}%)
-                          </Text>
-                        )}
-                      </Td>
-                      <Td>{bill.category || '—'}</Td>
-                      <Td>{new Date(bill.dueDate).toLocaleDateString('pt-BR')}</Td>
-                      <Td isNumeric>{formatCurrencyBRL(bill.totalAmount)}</Td>
-                      <Td>
-                        <Badge
-                          colorScheme={
-                            bill.status === 'PAID'
-                              ? 'green'
-                              : bill.status === 'PARTIALLY_PAID'
-                              ? 'yellow'
-                              : 'gray'
-                          }
-                        >
-                          {bill.status === 'PAID'
-                            ? 'Paga'
-                            : bill.status === 'PARTIALLY_PAID'
-                            ? 'Parcialmente paga'
-                            : 'Em aberto'}
-                        </Badge>
-                      </Td>
-                      <Td>
-                        <HStack spacing={2}>
-                          <Button
-                            size="xs"
-                            colorScheme="green"
-                            variant="outline"
-                            onClick={() => payMyShare.mutate(bill)}
-                            isDisabled={!canPayMyShare || payMyShare.isPending}
+                    return (
+                      <Tr key={bill.id}>
+                        <Td>
+                          <Text fontSize="sm">{bill.title}</Text>
+                          {myShare && (
+                            <Text fontSize="xs" color="gray.600">
+                              Sua parte: {formatCurrencyBRL(myShare.amount)} ({myShare.percentage}%)
+                            </Text>
+                          )}
+                        </Td>
+                        <Td>{bill.category || '—'}</Td>
+                        <Td>{new Date(bill.dueDate).toLocaleDateString('pt-BR')}</Td>
+                        <Td isNumeric>{formatCurrencyBRL(bill.totalAmount)}</Td>
+                        <Td>
+                          <Badge
+                            colorScheme={
+                              bill.status === 'PAID'
+                                ? 'green'
+                                : bill.status === 'PARTIALLY_PAID'
+                                  ? 'yellow'
+                                  : 'gray'
+                            }
                           >
-                            Pagar minha parte
-                          </Button>
-                          {user && bill.ownerId === user.id && bill.status === 'OPEN' && (
+                            {bill.status === 'PAID'
+                              ? 'Paga'
+                              : bill.status === 'PARTIALLY_PAID'
+                                ? 'Parcialmente paga'
+                                : 'Em aberto'}
+                          </Badge>
+                        </Td>
+                        <Td>
+                          <HStack spacing={2}>
                             <Button
                               size="xs"
-                              colorScheme="blue"
+                              colorScheme="green"
                               variant="outline"
-                              onClick={() => {
-                                setEditingBill(bill);
-                                reset({
-                                  title: bill.title,
-                                  dueDate: bill.dueDate
-                                    ? new Date(bill.dueDate).toISOString().slice(0, 10)
-                                    : '',
-                                  totalAmount: bill.totalAmount,
-                                  installments: bill.installments,
-                                  pixKey: bill.pixKey || undefined,
-                                  paymentLink: bill.paymentLink || undefined,
-                                  attachmentUrl: bill.attachmentUrl || undefined,
-                                  ownerId: bill.ownerId,
-                                  receiverId: bill.receiverId || undefined,
-                                  receiverName:
-                                    bill.receiverName || bill.receiver?.name || '',
-                                  category: bill.category || undefined,
-                                  isRecurring: false,
-                                  frequency: 'MONTHLY',
-                                } as any);
-                                const nextShares: Record<string, number> = {};
-                                bill.shares.forEach((s) => {
-                                  nextShares[s.userId] = s.percentage;
-                                });
-                                setShares(nextShares);
-                              }}
+                              onClick={() => payMyShare.mutate(bill)}
+                              isDisabled={!canPayMyShare || payMyShare.isPending}
                             >
-                              Editar
+                              Pagar minha parte
                             </Button>
-                          )}
-                          {user && bill.ownerId === user.id && (
-                            <Button
-                              size="xs"
-                              colorScheme="red"
-                              variant="ghost"
-                              onClick={() => {
-                                if (
-                                  !window.confirm(
-                                    'Tem certeza que deseja arquivar esta conta?',
-                                  )
-                                ) {
-                                  return;
-                                }
-                                archiveBill.mutate(bill.id);
-                              }}
-                              isLoading={archiveBill.isPending}
-                            >
-                              Arquivar
-                            </Button>
-                          )}
-                        </HStack>
-                      </Td>
-                    </Tr>
-                  );
-                })}
+                            {user && bill.ownerId === user.id && bill.status === 'OPEN' && (
+                              <Button
+                                size="xs"
+                                colorScheme="blue"
+                                variant="outline"
+                                onClick={() => {
+                                  setEditingBill(bill);
+                                  reset({
+                                    title: bill.title,
+                                    dueDate: bill.dueDate
+                                      ? new Date(bill.dueDate).toISOString().slice(0, 10)
+                                      : '',
+                                    totalAmount: bill.totalAmount,
+                                    installments: bill.installments,
+                                    pixKey: bill.pixKey || undefined,
+                                    paymentLink: bill.paymentLink || undefined,
+                                    attachmentUrl: bill.attachmentUrl || undefined,
+                                    ownerId: bill.ownerId,
+                                    receiverId: bill.receiverId || undefined,
+                                    receiverName:
+                                      bill.receiverName || bill.receiver?.name || '',
+                                    category: bill.category || undefined,
+                                    isRecurring: false,
+                                    frequency: 'MONTHLY',
+                                  } as any);
+                                  const nextShares: Record<string, number> = {};
+                                  bill.shares.forEach((s) => {
+                                    nextShares[s.userId] = s.percentage;
+                                  });
+                                  setShares(nextShares);
+                                }}
+                              >
+                                Editar
+                              </Button>
+                            )}
+                            {user && bill.ownerId === user.id && (
+                              <Button
+                                size="xs"
+                                colorScheme="red"
+                                variant="ghost"
+                                onClick={() => {
+                                  if (
+                                    !window.confirm(
+                                      'Tem certeza que deseja arquivar esta conta?',
+                                    )
+                                  ) {
+                                    return;
+                                  }
+                                  archiveBill.mutate(bill.id);
+                                }}
+                                isLoading={archiveBill.isPending}
+                              >
+                                Arquivar
+                              </Button>
+                            )}
+                          </HStack>
+                        </Td>
+                      </Tr>
+                    );
+                  })}
                 </Tbody>
               </Table>
             </Box>

@@ -129,10 +129,11 @@ router.get('/environments/:environmentId', authMiddleware, async (req: AuthReque
   try {
     const { environmentId } = req.params;
     const userId = req.user!.id;
-    const { month, year, status } = req.query as {
+    const { month, year, status, showAllPending } = req.query as {
       month?: string;
       year?: string;
       status?: string;
+      showAllPending?: string;
     };
 
     const environment = await prisma.environment.findUnique({
@@ -152,18 +153,24 @@ router.get('/environments/:environmentId', authMiddleware, async (req: AuthReque
       archived: false,
     };
 
-    if (month && year) {
-      const m = Number(month);
-      const y = Number(year);
-      if (!Number.isNaN(m) && !Number.isNaN(y)) {
-        const start = new Date(Date.UTC(y, m - 1, 1, 0, 0, 0));
-        const end = new Date(Date.UTC(y, m, 1, 0, 0, 0));
-        filters.dueDate = { gte: start, lt: end };
+    // Se showAllPending=true, mostra todas as contas não pagas (ignora filtro de mês/ano)
+    if (showAllPending === 'true') {
+      filters.status = { not: 'PAID' };
+    } else {
+      // Filtro de mês/ano padrão
+      if (month && year) {
+        const m = Number(month);
+        const y = Number(year);
+        if (!Number.isNaN(m) && !Number.isNaN(y)) {
+          const start = new Date(Date.UTC(y, m - 1, 1, 0, 0, 0));
+          const end = new Date(Date.UTC(y, m, 1, 0, 0, 0));
+          filters.dueDate = { gte: start, lt: end };
+        }
       }
-    }
 
-    if (status) {
-      filters.status = status as any;
+      if (status) {
+        filters.status = status as any;
+      }
     }
 
     const bills = await prisma.bill.findMany({

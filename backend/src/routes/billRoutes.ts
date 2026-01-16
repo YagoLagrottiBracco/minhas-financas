@@ -233,22 +233,24 @@ router.patch('/:billId', authMiddleware, async (req: AuthRequest, res: Response)
       return res.status(404).json({ message: 'Conta não encontrada' });
     }
 
-    // Permite edição pelo dono OU admin do grupo
-    if (bill.ownerId !== userId) {
-      const membership = await prisma.groupMember.findFirst({
-        where: { groupId: bill.groupId, userId, active: true, role: 'ADMIN' },
-      });
-      if (!membership) {
-        return res
-          .status(403)
-          .json({ message: 'Apenas quem criou a conta pode editá-la' });
-      }
+    // Verifica se é admin do grupo
+    const membership = await prisma.groupMember.findFirst({
+      where: { groupId: bill.groupId, userId, active: true },
+    });
+    const isAdmin = membership?.role === 'ADMIN';
+
+    // Admin pode editar qualquer conta. Membros só podem editar suas próprias contas
+    if (!isAdmin && bill.ownerId !== userId) {
+      return res
+        .status(403)
+        .json({ message: 'Apenas quem criou a conta ou admins podem editá-la' });
     }
 
-    if (bill.status !== 'OPEN') {
+    // Restrição de status PAID só se aplica a membros não-admin
+    if (!isAdmin && bill.status === 'PAID') {
       return res
         .status(400)
-        .json({ message: 'Apenas contas em aberto podem ser editadas' });
+        .json({ message: 'Contas já pagas não podem ser editadas' });
     }
 
     const data: any = {};

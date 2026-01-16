@@ -283,6 +283,11 @@ const EnvironmentBillsPage = () => {
 
   const environment = environments?.find((e) => e.id === environmentId);
 
+  // Verifica se o usuário atual é admin do grupo
+  const isAdmin = user && group?.members.some(
+    (m) => m.user.id === user.id && m.role === 'ADMIN'
+  );
+
   const { data: recurringBills } = useQuery<RecurringBill[]>({
     queryKey: ['recurring-bills', environmentId],
     queryFn: async () => {
@@ -1107,7 +1112,7 @@ const EnvironmentBillsPage = () => {
                             >
                               Pagar minha parte
                             </Button>
-                            {user && bill.ownerId === user.id && bill.status === 'OPEN' && (
+                            {user && (isAdmin || (bill.ownerId === user.id && bill.status !== 'PAID')) && (
                               <Button
                                 size="xs"
                                 colorScheme="blue"
@@ -1142,7 +1147,7 @@ const EnvironmentBillsPage = () => {
                                 Editar
                               </Button>
                             )}
-                            {user && bill.ownerId === user.id && (
+                            {user && (isAdmin || bill.ownerId === user.id) && (
                               <Button
                                 size="xs"
                                 colorScheme="red"
